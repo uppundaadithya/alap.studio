@@ -20,6 +20,9 @@ const {
   markTrackPaid,
   publicTrack,
   databaseMode,
+  uploadBufferToStorage,
+  getSignedUrlForFile,
+  createStorageClient,
 } = require("./database");
 
 const app = express();
@@ -50,16 +53,9 @@ const razorpay = hasRazorpayConfig()
 
 const allowedMimeTypes = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave"]);
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, callback) => callback(null, PRIVATE_UPLOAD_DIR),
-  filename: (_req, file, callback) => {
-    const extension = path.extname(file.originalname).toLowerCase();
-    callback(null, `${uuidv4()}${extension}`);
-  },
-});
-
+// Use memoryStorage so we can upload directly to Firebase Storage if configured.
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: Number(process.env.MAX_UPLOAD_BYTES || 200 * 1024 * 1024),
   },
@@ -174,6 +170,29 @@ app.post(
       return res.status(400).json({ error: "Title, client details, and valid price are required." });
     }
 
+    // Try to upload directly to Firebase Storage if available.
+    let storagePath = null;
+    let storageMode = "local-private";
+
+    if (req.file && req.file.buffer) {
+      try {
+        const extension = path.extname(req.file.originalname).toLowerCase();
+        const destination = `tracks/${uuidv4()}${extension}`;
+        const result = await uploadBufferToStorage(req.file.buffer, destination, req.file.mimetype);
+        storagePath = `${result.bucket}/${result.name}`;
+        storageMode = "gcs";
+      } catch (err) {
+        console.warn("GCS upload failed, falling back to local temp file:", err && err.message);
+        // fallback to writing temp file
+        const filename = `${uuidv4()}${path.extname(req.file.originalname).toLowerCase()}`;
+        const destPath = path.join(PRIVATE_UPLOAD_DIR, filename);
+        await fs.promises.mkdir(PRIVATE_UPLOAD_DIR, { recursive: true });
+        await fs.promises.writeFile(destPath, req.file.buffer);
+        storagePath = destPath;
+        storageMode = "local-private";
+      }
+    }
+
     const track = await createTrack({
       title: title.trim(),
       clientName: clientName.trim(),
@@ -182,8 +201,8 @@ app.post(
       producerName: PRODUCER_NAME,
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
-      storagePath: req.file.path,
-      storageMode: "local-private",
+      storagePath,
+      storageMode,
     });
 
     res.status(201).json({
@@ -227,16 +246,59 @@ app.get(
     if (!track) {
       return res.status(404).json({ error: "Track not found." });
     }
+    let totalSize;
+    const rangeHeader = req.headers.range;
+    let start = 0;
+    let end;
 
+    if (track.storageMode === "gcs") {
+      // storagePath is stored as "bucket/name"
+      const [bucketName, ...nameParts] = (track.storagePath || "").split("/");
+      const objectName = nameParts.join("/");
+      const storage = createStorageClient();
+      const file = storage.bucket(bucketName).file(objectName);
+      const [meta] = await file.getMetadata();
+      totalSize = Number(meta.size || 0);
+      const previewEnd = Math.min(totalSize, PREVIEW_BYTES) - 1;
+
+      // parse range header
+      if (rangeHeader) {
+        const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+        if (match) {
+          const requestedStart = match[1] ? parseInt(match[1], 10) : 0;
+          const requestedEnd = match[2] ? parseInt(match[2], 10) : previewEnd;
+          start = Math.max(0, Math.min(Number.isNaN(requestedStart) ? 0 : requestedStart, previewEnd));
+          end = Math.min(Number.isNaN(requestedEnd) ? previewEnd : requestedEnd, previewEnd);
+          if (end < start) end = start;
+        }
+      } else {
+        end = previewEnd;
+      }
+
+      res.setHeader("Content-Type", track.mimeType || "audio/mpeg");
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Content-Length", end - start + 1);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+      res.status(rangeHeader ? 206 : 200);
+
+      const stream = file.createReadStream({ start, end });
+      stream.on("error", (err) => {
+        console.error("GCS stream error:", err);
+        res.destroy(err);
+      });
+      stream.pipe(res);
+      return;
+    }
+
+    // Local fallback
     const stat = await fs.promises.stat(track.storagePath);
-    const totalSize = stat.size;
+    totalSize = stat.size;
     // Only expose the leading portion of the file as a preview.
     const previewEnd = Math.min(totalSize, PREVIEW_BYTES) - 1;
 
     // Parse the browser's Range header so the audio player can seek and
     // calculate duration correctly. Requests beyond the preview window are
     // clamped to the preview boundary.
-    const rangeHeader = req.headers.range;
     let start = 0;
     let end = previewEnd;
 
@@ -274,31 +336,70 @@ app.get(
       return res.status(403).json({ error: "Payment required to play the full audio." });
     }
 
-    const stat = await fs.promises.stat(track.storagePath);
-    const totalSize = stat.size;
+        if (track.storageMode === "gcs") {
+          const [bucketName, ...nameParts] = (track.storagePath || "").split("/");
+          const objectName = nameParts.join("/");
+          const storage = createStorageClient();
+          const file = storage.bucket(bucketName).file(objectName);
+          const [meta] = await file.getMetadata();
+          const totalSize = Number(meta.size || 0);
 
-    const rangeHeader = req.headers.range;
-    let start = 0;
-    let end = totalSize - 1;
+          const rangeHeader = req.headers.range;
+          let start = 0;
+          let end = totalSize - 1;
 
-    if (rangeHeader) {
-      const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
-      if (match) {
-        const requestedStart = match[1] ? parseInt(match[1], 10) : 0;
-        const requestedEnd = match[2] ? parseInt(match[2], 10) : totalSize - 1;
-        start = Math.max(0, Math.min(Number.isNaN(requestedStart) ? 0 : requestedStart, totalSize - 1));
-        end = Math.max(0, Math.min(Number.isNaN(requestedEnd) ? totalSize - 1 : requestedEnd, totalSize - 1));
-        if (end < start) end = start;
-      }
-    }
+          if (rangeHeader) {
+            const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+            if (match) {
+              const requestedStart = match[1] ? parseInt(match[1], 10) : 0;
+              const requestedEnd = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+              start = Math.max(0, Math.min(Number.isNaN(requestedStart) ? 0 : requestedStart, totalSize - 1));
+              end = Math.max(0, Math.min(Number.isNaN(requestedEnd) ? totalSize - 1 : requestedEnd, totalSize - 1));
+              if (end < start) end = start;
+            }
+          }
 
-    res.setHeader("Content-Type", track.mimeType || "audio/mpeg");
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Content-Length", end - start + 1);
-    res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
-    res.status(rangeHeader ? 206 : 200);
+          res.setHeader("Content-Type", track.mimeType || "audio/mpeg");
+          res.setHeader("Accept-Ranges", "bytes");
+          res.setHeader("Content-Length", end - start + 1);
+          res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+          res.status(rangeHeader ? 206 : 200);
 
-    fs.createReadStream(track.storagePath, { start, end }).pipe(res);
+          const stream = file.createReadStream({ start, end });
+          stream.on("error", (err) => {
+            console.error("GCS stream error:", err);
+            res.destroy(err);
+          });
+          stream.pipe(res);
+          return;
+        }
+
+        const stat = await fs.promises.stat(track.storagePath);
+        const totalSize = stat.size;
+
+        // For local fallback (full audio)
+        const rangeHeader2 = req.headers.range;
+        let start2 = 0;
+        let end2 = totalSize - 1;
+
+        if (rangeHeader2) {
+          const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader2);
+          if (match) {
+            const requestedStart = match[1] ? parseInt(match[1], 10) : 0;
+            const requestedEnd = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+            start2 = Math.max(0, Math.min(Number.isNaN(requestedStart) ? 0 : requestedStart, totalSize - 1));
+            end2 = Math.max(0, Math.min(Number.isNaN(requestedEnd) ? totalSize - 1 : requestedEnd, totalSize - 1));
+            if (end2 < start2) end2 = start2;
+          }
+        }
+
+        res.setHeader("Content-Type", track.mimeType || "audio/mpeg");
+        res.setHeader("Accept-Ranges", "bytes");
+        res.setHeader("Content-Length", end2 - start2 + 1);
+        res.setHeader("Content-Range", `bytes ${start2}-${end2}/${totalSize}`);
+        res.status(rangeHeader2 ? 206 : 200);
+
+        fs.createReadStream(track.storagePath, { start: start2, end: end2 }).pipe(res);
   }),
 );
 
@@ -490,6 +591,25 @@ app.get(
 
     if (track.status !== "PAID") {
       return res.status(403).json({ error: "Payment required before download." });
+    }
+
+    if (track.storageMode === "gcs") {
+      // Provide a signed URL for download
+      try {
+        const [bucketName, ...nameParts] = (track.storagePath || "").split("/");
+        const objectName = nameParts.join("/");
+        const storage = createStorageClient();
+        const file = storage.bucket(bucketName).file(objectName);
+        const [url] = await file.getSignedUrl({
+          version: "v4",
+          action: "read",
+          expires: Date.now() + 60 * 60 * 1000, // 1 hour
+        });
+        return res.redirect(url);
+      } catch (err) {
+        console.error("Failed to generate signed URL:", err);
+        return res.status(500).json({ error: "Could not provide download." });
+      }
     }
 
     res.download(track.storagePath, track.fileName || `${track.id}.audio`);

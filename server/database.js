@@ -3,6 +3,7 @@ const path = require("path");
 const os = require("os");
 const { randomUUID } = require("crypto");
 const { FieldValue, Firestore } = require("@google-cloud/firestore");
+const { Storage } = require("@google-cloud/storage");
 
 const LOCAL_DATA_DIR = process.env.LOCAL_DATA_DIR || path.join(os.tmpdir(), "alap_private_data");
 const LOCAL_DATA_FILE = path.join(LOCAL_DATA_DIR, "tracks.json");
@@ -57,6 +58,47 @@ const createFirestoreClient = () => {
       private_key: serviceAccount.privateKey,
     },
   });
+};
+
+const createStorageClient = () => {
+  const serviceAccount = parseServiceAccount();
+  if (!serviceAccount.projectId || !serviceAccount.clientEmail || !serviceAccount.privateKey) {
+    throw new Error("Firebase service account credentials are incomplete for storage.");
+  }
+
+  return new Storage({
+    projectId: serviceAccount.projectId,
+    credentials: {
+      client_email: serviceAccount.clientEmail,
+      private_key: serviceAccount.privateKey,
+    },
+  });
+};
+
+// Helpers for uploading to and generating signed URLs from Firebase/GCS storage.
+const getStorageBucket = () => {
+  const storage = createStorageClient();
+  const serviceAccount = parseServiceAccount();
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.projectId}.appspot.com`;
+  return storage.bucket(bucketName);
+};
+
+const uploadBufferToStorage = async (buffer, destination, contentType) => {
+  const bucket = getStorageBucket();
+  const file = bucket.file(destination);
+  await file.save(buffer, { metadata: { contentType } });
+  return { bucket: bucket.name, name: destination };
+};
+
+const getSignedUrlForFile = async (destination, expiresSeconds = 60 * 60) => {
+  const bucket = getStorageBucket();
+  const file = bucket.file(destination);
+  const [url] = await file.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + expiresSeconds * 1000,
+  });
+  return url;
 };
 
 const serializeFirestoreTrack = (snapshot) => {
@@ -307,4 +349,9 @@ module.exports = {
   markTrackPaid: store.markTrackPaid,
   publicTrack,
   databaseMode: store.mode,
+  // Storage helpers (may throw if credentials are not configured)
+  uploadBufferToStorage,
+  getSignedUrlForFile,
+  getStorageBucket,
+  createStorageClient,
 };
