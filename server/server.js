@@ -86,7 +86,12 @@ app.use(
           "https://*.vercel.live",
         ],
         connectSrc: ["'self'", "https://*.razorpay.com"],
-        frameSrc: ["https://api.razorpay.com", "https://checkout.razorpay.com"],
+        frameSrc: [
+          "https://api.razorpay.com",
+          "https://checkout.razorpay.com",
+          "https://vercel.live",
+          "https://*.vercel.live",
+        ],
         imgSrc: ["'self'", "data:", "https:"],
         mediaSrc: ["'self'", "https:"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://*.razorpay.com"],
