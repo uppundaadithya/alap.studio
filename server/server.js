@@ -306,8 +306,8 @@ app.get(
     // Parse the browser's Range header so the audio player can seek and
     // calculate duration correctly. Requests beyond the preview window are
     // clamped to the preview boundary.
-    let start = 0;
-    let end = previewEnd;
+    start = 0;
+    end = previewEnd;
 
     if (rangeHeader) {
       const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
