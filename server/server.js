@@ -352,27 +352,27 @@ app.get(
           const totalSize = Number(meta.size || 0);
 
           const rangeHeader = req.headers.range;
-          let start = 0;
-          let end = totalSize - 1;
+          let start2 = 0;
+          let end2 = totalSize - 1;
 
           if (rangeHeader) {
             const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
             if (match) {
               const requestedStart = match[1] ? parseInt(match[1], 10) : 0;
               const requestedEnd = match[2] ? parseInt(match[2], 10) : totalSize - 1;
-              start = Math.max(0, Math.min(Number.isNaN(requestedStart) ? 0 : requestedStart, totalSize - 1));
-              end = Math.max(0, Math.min(Number.isNaN(requestedEnd) ? totalSize - 1 : requestedEnd, totalSize - 1));
-              if (end < start) end = start;
+              start2 = Math.max(0, Math.min(Number.isNaN(requestedStart) ? 0 : requestedStart, totalSize - 1));
+              end2 = Math.max(0, Math.min(Number.isNaN(requestedEnd) ? totalSize - 1 : requestedEnd, totalSize - 1));
+              if (end2 < start2) end2 = start2;
             }
           }
 
           res.setHeader("Content-Type", track.mimeType || "audio/mpeg");
           res.setHeader("Accept-Ranges", "bytes");
-          res.setHeader("Content-Length", end - start + 1);
-          res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+          res.setHeader("Content-Length", end2 - start2 + 1);
+          res.setHeader("Content-Range", `bytes ${start2}-${end2}/${totalSize}`);
           res.status(rangeHeader ? 206 : 200);
 
-          const stream = file.createReadStream({ start, end });
+          const stream = file.createReadStream({ start: start2, end: end2 });
           stream.on("error", (err) => {
             console.error("GCS stream error:", err);
             res.destroy(err);
