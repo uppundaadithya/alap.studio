@@ -2,8 +2,26 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { randomUUID } = require("crypto");
-const { FieldValue, Firestore } = require("@google-cloud/firestore");
-const { Storage } = require("@google-cloud/storage");
+
+// Diagnose optional Google Cloud client requires so initialization failures
+// surface as clear console errors instead of crashing the whole module.
+let FieldValue = null;
+let Firestore = null;
+let Storage = null;
+try {
+  const _firestore = require("@google-cloud/firestore");
+  FieldValue = _firestore.FieldValue;
+  Firestore = _firestore.Firestore || _firestore.default || _firestore;
+} catch (err) {
+  console.error("Could not require @google-cloud/firestore:", err && err.message);
+}
+
+try {
+  const _storage = require("@google-cloud/storage");
+  Storage = _storage.Storage || _storage.default || _storage;
+} catch (err) {
+  console.error("Could not require @google-cloud/storage:", err && err.message);
+}
 
 const LOCAL_DATA_DIR = process.env.LOCAL_DATA_DIR || path.join(os.tmpdir(), "alap_private_data");
 const LOCAL_DATA_FILE = path.join(LOCAL_DATA_DIR, "tracks.json");
@@ -45,6 +63,10 @@ const parseServiceAccount = () => {
 };
 
 const createFirestoreClient = () => {
+  if (!Firestore) {
+    throw new Error("@google-cloud/firestore module not available. Ensure dependency is installed.");
+  }
+
   const serviceAccount = parseServiceAccount();
 
   if (!serviceAccount.projectId || !serviceAccount.clientEmail || !serviceAccount.privateKey) {
@@ -61,6 +83,10 @@ const createFirestoreClient = () => {
 };
 
 const createStorageClient = () => {
+  if (!Storage) {
+    throw new Error("@google-cloud/storage module not available. Ensure dependency is installed.");
+  }
+
   const serviceAccount = parseServiceAccount();
   if (!serviceAccount.projectId || !serviceAccount.clientEmail || !serviceAccount.privateKey) {
     throw new Error("Firebase service account credentials are incomplete for storage.");
@@ -354,4 +380,16 @@ module.exports = {
   getSignedUrlForFile,
   getStorageBucket,
   createStorageClient,
+  // Diagnostics: report which optional cloud modules were loaded
+  __diagnostics: () => ({
+    firestoreLoaded: Boolean(Firestore),
+    storageLoaded: Boolean(Storage),
+    env: {
+      FIREBASE_SERVICE_ACCOUNT_JSON: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON),
+      FIREBASE_PROJECT_ID: Boolean(process.env.FIREBASE_PROJECT_ID),
+      FIREBASE_CLIENT_EMAIL: Boolean(process.env.FIREBASE_CLIENT_EMAIL),
+      FIREBASE_PRIVATE_KEY: Boolean(process.env.FIREBASE_PRIVATE_KEY),
+      FIREBASE_STORAGE_BUCKET: Boolean(process.env.FIREBASE_STORAGE_BUCKET),
+    },
+  }),
 };

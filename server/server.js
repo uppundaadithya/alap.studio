@@ -26,6 +26,13 @@ const {
 } = require("./database");
 
 const app = express();
+// Log unhandled errors to surface them in Vercel function logs quickly.
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason && reason.stack ? reason.stack : reason);
+});
 const PORT = Number(process.env.PORT || 3000);
 const PRODUCER_NAME = process.env.PRODUCER_NAME || "Aalap Studio";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
