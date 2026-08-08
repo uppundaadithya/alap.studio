@@ -92,6 +92,7 @@ app.use(
           "https://vercel.live",
           "https://*.vercel.live",
         ],
+        frameAncestors: ["'self'", "https://vercel.live", "https://*.vercel.live"],
         imgSrc: ["'self'", "data:", "https:"],
         mediaSrc: ["'self'", "https:"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://*.razorpay.com"],
