@@ -175,14 +175,23 @@ app.post(
       return res.status(400).json({ error: "Audio file is required." });
     }
 
+    // Enforce Firebase-only storage: do not persist files or payment data locally.
+    if (databaseMode !== "firestore") {
+      removeUploadedFile(req.file);
+      return res.status(500).json({
+        error:
+          "Server is configured to require Firebase for storage. Set FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY in Vercel environment variables.",
+      });
+    }
+
     if (!title || !clientName || !clientEmail || !price || Number(price) <= 0) {
       removeUploadedFile(req.file);
       return res.status(400).json({ error: "Title, client details, and valid price are required." });
     }
 
-    // Try to upload directly to Firebase Storage if available.
+    // Upload will use Firebase Storage (databaseMode === 'firestore')
     let storagePath = null;
-    let storageMode = "local-private";
+    let storageMode = "gcs";
     let createdTrackDuringUpload = null;
     if (req.file && req.file.buffer) {
       const db = require("./database");
@@ -214,14 +223,9 @@ app.post(
           }
         }
       } catch (err) {
-        console.warn("GCS upload failed, falling back to local temp file:", err && err.message);
-        // fallback to writing temp file
-        const filename = `${uuidv4()}${path.extname(req.file.originalname).toLowerCase()}`;
-        const destPath = path.join(PRIVATE_UPLOAD_DIR, filename);
-        await fs.promises.mkdir(PRIVATE_UPLOAD_DIR, { recursive: true });
-        await fs.promises.writeFile(destPath, req.file.buffer);
-        storagePath = destPath;
-        storageMode = "local-private";
+        console.error("GCS upload failed:", err && err.message);
+        removeUploadedFile(req.file);
+        return res.status(500).json({ error: "Failed to upload to Firebase Storage. Check Firebase credentials and storage bucket." });
       }
     }
 
@@ -251,6 +255,8 @@ app.post(
     }
 
     if (!track) {
+      // createTrack should only run against Firestore store because we
+      // enforced databaseMode === 'firestore' earlier.
       track = await createTrack({
         title: title.trim(),
         clientName: clientName.trim(),
