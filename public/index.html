@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ALAP Producer Dashboard</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body data-page="dashboard">
+    <main class="shell">
+      <section class="panel hero-panel">
+        <div>
+          <a class="brand-mark" href="/" aria-label="ALAP home">
+            <img src="/alap-logo.png" alt="ALAP Music & SFX" />
+          </a>
+          <p class="eyebrow">ALAP secure audio delivery</p>
+          <h1>Deliver mastered tracks with a clean paywall.</h1>
+          <p class="lede">
+            Upload final masters, set an INR price, and send clients a branded pay-to-download link.
+          </p>
+          <div class="hero-actions">
+            <a class="secondary-button portfolio-button" href="/portfolio.html">View portfolio</a>
+          </div>
+        </div>
+        <div class="stat-grid" aria-label="Dashboard stats">
+          <div class="stat">
+            <span id="totalTracks">0</span>
+            <small>Tracks</small>
+          </div>
+          <div class="stat">
+            <span id="paidTracks">0</span>
+            <small>Paid</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid-layout">
+        <form id="uploadForm" class="panel form-panel">
+          <div class="section-heading">
+            <p class="eyebrow">New delivery</p>
+            <h2>Upload track</h2>
+          </div>
+
+          <label class="field">
+            <span>Audio file</span>
+            <input id="audioFile" name="audio" type="file" accept="audio/wav,audio/mpeg,audio/mp3,.wav,.mp3" required />
+          </label>
+
+          <label class="field">
+            <span>Track title</span>
+            <input name="title" type="text" placeholder="e.g. Midnight Drive - Final Master" maxlength="120" required />
+          </label>
+
+          <div class="field-row">
+            <label class="field">
+              <span>Client name</span>
+              <input name="clientName" type="text" placeholder="Client name" maxlength="100" required />
+            </label>
+            <label class="field">
+              <span>Client email</span>
+              <input name="clientEmail" type="email" placeholder="client@example.com" maxlength="160" required />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Price in INR</span>
+            <input name="price" type="number" min="1" step="1" placeholder="4999" required />
+          </label>
+
+          <button class="primary-button" type="submit">
+            <span>Upload and generate link</span>
+          </button>
+
+          <p id="uploadMessage" class="message" role="status" aria-live="polite"></p>
+        </form>
+
+        <section class="panel result-panel" aria-live="polite">
+          <div class="section-heading">
+            <p class="eyebrow">Share link</p>
+            <h2>Latest upload</h2>
+          </div>
+          <div id="shareResult" class="empty-state">
+            Your client link will appear here after upload.
+          </div>
+        </section>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="section-heading">
+          <p class="eyebrow">Deliveries</p>
+          <h2>Uploaded tracks</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Track</th>
+                <th>Client</th>
+                <th>Price</th>
+                <th>Status</th>
+                <th>Link</th>
+              </tr>
+            </thead>
+            <tbody id="tracksTable">
+              <tr>
+                <td colspan="5" class="muted-cell">Loading tracks...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
