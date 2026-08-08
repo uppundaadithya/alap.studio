@@ -2,6 +2,9 @@
   "name": "masterdrop-workspace",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "description": "Workspace runner for the MasterDrop paywalled audio app.",
   "scripts": {
     "install": "npm install --prefix server",
