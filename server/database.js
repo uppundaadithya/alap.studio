@@ -1,9 +1,10 @@
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { randomUUID } = require("crypto");
 const { FieldValue, Firestore } = require("@google-cloud/firestore");
 
-const LOCAL_DATA_DIR = path.join(__dirname, "private_data");
+const LOCAL_DATA_DIR = process.env.LOCAL_DATA_DIR || path.join(os.tmpdir(), "alap_private_data");
 const LOCAL_DATA_FILE = path.join(LOCAL_DATA_DIR, "tracks.json");
 
 const isPlaceholder = (value = "") =>
@@ -287,7 +288,7 @@ const store = hasFirebaseCredentials() ? createFirestoreStore() : createLocalSto
 
 if (store.mode === "local-demo") {
   console.warn(
-    "Firebase service account credentials were not found. Running with local demo JSON storage in server/private_data.",
+    `Firebase service account credentials were not found. Running with local demo JSON storage in ${LOCAL_DATA_DIR}.`,
   );
 }
 

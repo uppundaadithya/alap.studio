@@ -8,4 +8,7 @@
     "start": "npm start --prefix server",
     "dev": "npm run dev --prefix server"
   }
+  ,"dependencies": {
+    "serverless-http": "^2.8.0"
+  }
 }

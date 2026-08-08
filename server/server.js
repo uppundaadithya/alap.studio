@@ -3,6 +3,7 @@ require("dotenv").config();
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const cors = require("cors");
 const express = require("express");
 const helmet = require("helmet");
@@ -31,9 +32,13 @@ const PAYMENT_PAGE_URL =
   process.env.RAZORPAY_PAYMENT_LINK || "https://razorpay.me/@adithya8106";
 const PREVIEW_BYTES = Number(process.env.PREVIEW_BYTES || 1024 * 1024 * 2);
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
-const PRIVATE_UPLOAD_DIR = path.join(__dirname, "private_uploads");
+const PRIVATE_UPLOAD_DIR = process.env.PRIVATE_UPLOAD_DIR || path.join(os.tmpdir(), "alap_private_uploads");
 
-fs.mkdirSync(PRIVATE_UPLOAD_DIR, { recursive: true });
+try {
+  fs.mkdirSync(PRIVATE_UPLOAD_DIR, { recursive: true });
+} catch (err) {
+  console.warn(`Could not create PRIVATE_UPLOAD_DIR (${PRIVATE_UPLOAD_DIR}):`, err && err.message);
+}
 
 const hasRazorpayConfig = () => Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
 const razorpay = hasRazorpayConfig()
@@ -495,10 +500,17 @@ app.use((error, _req, res, _next) => {
   console.error(error);
 });
 
-app.listen(PORT, () => {
-  console.log(`MasterDrop server running at http://localhost:${PORT}`);
-  console.log(`Database mode: ${databaseMode}`);
-  if (!hasRazorpayConfig()) {
-    console.log("Razorpay credentials not found. Payment runs in local demo unlock mode.");
-  }
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`MasterDrop server running at http://localhost:${PORT}`);
+    console.log(`Database mode: ${databaseMode}`);
+    if (!hasRazorpayConfig()) {
+      console.log("Razorpay credentials not found. Payment runs in local demo unlock mode.");
+    }
+  });
+} else {
+  console.log("Detected Vercel environment; not starting HTTP listener.");
+}
+
+// Export the app so serverless platforms (Vercel, Netlify) can wrap it.
+module.exports = app;
