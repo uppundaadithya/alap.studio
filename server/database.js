@@ -169,6 +169,35 @@ const writeLocalData = async (data) => {
 const createLocalStore = () => ({
   mode: "local-demo",
 
+  generateId() {
+    return randomUUID();
+  },
+
+  async createTrackWithId(id, track) {
+    const data = await readLocalData();
+    const now = new Date().toISOString();
+
+    data.tracks[id] = {
+      id,
+      ...track,
+      price: Number(track.price),
+      status: "PENDING",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await writeLocalData(data);
+    return data.tracks[id];
+  },
+
+  async updateTrackFields(id, fields) {
+    const data = await readLocalData();
+    if (!data.tracks[id]) throw new Error('Track not found');
+    data.tracks[id] = { ...data.tracks[id], ...fields, updatedAt: new Date().toISOString() };
+    await writeLocalData(data);
+    return data.tracks[id];
+  },
+
   async createTrack(track) {
     const data = await readLocalData();
     const id = randomUUID();
@@ -263,9 +292,15 @@ const createFirestoreStore = () => {
   return {
     mode: "firestore",
 
+    generateId() {
+      return tracksCollection.doc().id;
+    },
+
     async createTrack(track) {
       const now = FieldValue.serverTimestamp();
-      const docRef = await tracksCollection.add({
+      const id = tracksCollection.doc().id;
+      const docRef = tracksCollection.doc(id);
+      await docRef.set({
         ...track,
         price: Number(track.price),
         status: "PENDING",
@@ -274,6 +309,28 @@ const createFirestoreStore = () => {
       });
 
       const snapshot = await docRef.get();
+      return serializeFirestoreTrack(snapshot);
+    },
+
+    async createTrackWithId(id, track) {
+      const now = FieldValue.serverTimestamp();
+      const docRef = tracksCollection.doc(id);
+      await docRef.set({
+        ...track,
+        price: Number(track.price),
+        status: "PENDING",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const snapshot = await docRef.get();
+      return serializeFirestoreTrack(snapshot);
+    },
+
+    async updateTrackFields(id, fields) {
+      const now = FieldValue.serverTimestamp();
+      const ref = tracksCollection.doc(id);
+      await ref.set({ ...fields, updatedAt: now }, { merge: true });
+      const snapshot = await ref.get();
       return serializeFirestoreTrack(snapshot);
     },
 
@@ -368,6 +425,9 @@ const publicTrack = (track) => {
 
 module.exports = {
   createTrack: store.createTrack,
+  generateId: store.generateId,
+  createTrackWithId: store.createTrackWithId,
+  updateTrackFields: store.updateTrackFields,
   getOrderById: store.getOrderById,
   getTrackById: store.getTrackById,
   listTracks: store.listTracks,
@@ -393,3 +453,4 @@ module.exports = {
     },
   }),
 };
+

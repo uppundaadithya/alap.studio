@@ -23,6 +23,9 @@ const {
   uploadBufferToStorage,
   getSignedUrlForFile,
   createStorageClient,
+  generateId,
+  createTrackWithId,
+  updateTrackFields,
 } = require("./database");
 
 const app = express();
@@ -180,14 +183,36 @@ app.post(
     // Try to upload directly to Firebase Storage if available.
     let storagePath = null;
     let storageMode = "local-private";
-
+    let createdTrackDuringUpload = null;
     if (req.file && req.file.buffer) {
+      const db = require("./database");
+      const reservedId = typeof db.generateId === "function" ? db.generateId() : null;
       try {
         const extension = path.extname(req.file.originalname).toLowerCase();
-        const destination = `tracks/${uuidv4()}${extension}`;
+        const destination = `tracks/${reservedId || uuidv4()}${extension}`;
         const result = await uploadBufferToStorage(req.file.buffer, destination, req.file.mimetype);
         storagePath = `${result.bucket}/${result.name}`;
         storageMode = "gcs";
+
+        // If we have a reserved ID, create the Firestore document with that ID.
+        if (reservedId && typeof db.createTrackWithId === "function") {
+          try {
+            const created = await db.createTrackWithId(reservedId, {
+              title: title.trim(),
+              clientName: clientName.trim(),
+              clientEmail: clientEmail.trim().toLowerCase(),
+              price: Number(price),
+              producerName: PRODUCER_NAME,
+              fileName: req.file.originalname,
+              mimeType: req.file.mimetype,
+              storagePath: `${result.bucket}/${result.name}`,
+              storageMode: "gcs",
+            });
+            createdTrackDuringUpload = created;
+          } catch (innerErr) {
+            console.warn("Failed to create Firestore track doc after upload:", innerErr && innerErr.message);
+          }
+        }
       } catch (err) {
         console.warn("GCS upload failed, falling back to local temp file:", err && err.message);
         // fallback to writing temp file
@@ -200,17 +225,44 @@ app.post(
       }
     }
 
-    const track = await createTrack({
-      title: title.trim(),
-      clientName: clientName.trim(),
-      clientEmail: clientEmail.trim().toLowerCase(),
-      price: Number(price),
-      producerName: PRODUCER_NAME,
-      fileName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      storagePath,
-      storageMode,
-    });
+    // If the store supports generated IDs, prefer to create using the
+    // already-reserved ID; otherwise fall back to createTrack.
+    const db2 = require("./database");
+    let track = null;
+
+    if (createdTrackDuringUpload) {
+      track = createdTrackDuringUpload;
+    }
+
+    // If we already created a Firestore doc during upload (reservedId path)
+    // the store's createTrackWithId would have returned the doc. If not,
+    // fall back to creating the track normally.
+    if (storageMode === "gcs" && typeof db2.createTrackWithId === "function") {
+      // Attempt to find an existing track by storagePath first (best-effort).
+      // Some stores may not support querying; in that case create a new doc.
+      try {
+        // Not all stores implement search by storagePath; skip if unavailable.
+        if (typeof db2.getTrackByStoragePath === "function") {
+          track = await db2.getTrackByStoragePath(storagePath);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    if (!track) {
+      track = await createTrack({
+        title: title.trim(),
+        clientName: clientName.trim(),
+        clientEmail: clientEmail.trim().toLowerCase(),
+        price: Number(price),
+        producerName: PRODUCER_NAME,
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        storagePath,
+        storageMode,
+      });
+    }
 
     res.status(201).json({
       trackId: track.id,
