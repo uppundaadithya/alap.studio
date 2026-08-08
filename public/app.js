@@ -1,3 +1,25 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-analytics.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCjG381SVbOjSdRbjXSnjK6imREZunXmfc",
+  authDomain: "studio-b9a3b.firebaseapp.com",
+  databaseURL: "https://studio-b9a3b-default-rtdb.firebaseio.com",
+  projectId: "studio-b9a3b",
+  storageBucket: "studio-b9a3b.firebasestorage.app",
+  messagingSenderId: "974529192259",
+  appId: "1:974529192259:web:dd3f45858e0beca5c14ff6",
+  measurementId: "G-JM94Y6HDE8",
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+let analytics;
+try {
+  analytics = getAnalytics(firebaseApp);
+} catch (error) {
+  console.info("Firebase analytics not initialized:", error);
+}
+
 const state = {
   currentTrack: null,
 };
