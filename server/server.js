@@ -160,7 +160,10 @@ const asyncHandler = (handler) => (req, res, next) => {
 
 const requireRazorpayConfig = () => {
   if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-    throw Object.assign(new Error("Razorpay credentials are not configured."), { status: 500 });
+    throw Object.assign(
+      new Error("Razorpay is not configured. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET before taking payments."),
+      { status: 503 },
+    );
   }
 };
 
