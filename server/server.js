@@ -708,12 +708,23 @@ app.use((error, _req, res, _next) => {
 });
 
 if (!process.env.VERCEL) {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`MasterDrop server running at http://localhost:${PORT}`);
     console.log(`Database mode: ${databaseMode}`);
     if (!hasRazorpayConfig()) {
-      console.log("Razorpay credentials not found. Payment runs in local demo unlock mode.");
+      console.log("Razorpay credentials not found. Real payments are disabled until credentials are configured.");
     }
+  });
+
+  server.on("error", (error) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(`Port ${PORT} is already in use.`);
+      console.error(`Stop the other process or start this app with another port, for example:`);
+      console.error(`$env:PORT=3001; npm start`);
+      process.exit(1);
+    }
+
+    throw error;
   });
 } else {
   console.log("Detected Vercel environment; not starting HTTP listener.");
