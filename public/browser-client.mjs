@@ -220,7 +220,15 @@ const initDashboard = () => {
 
 const renderTrack = (track) => {
   const card = document.querySelector("#trackCard");
-  const paid = track.status === "PAID";
+  
+  // ❌ STRICT CHECK: Only show link if payment status is PAID AND link exists
+  const paid = track.status === "PAID" && track.driveLink;
+  
+  if (track.status === "PAID" && !track.driveLink) {
+    console.warn("⚠️ WARNING: Track marked as PAID but driveLink is missing!");
+  }
+
+  console.log(`Track Status: ${track.status} | Has Drive Link: ${!!track.driveLink} | Locked: ${!paid}`);
 
   card.innerHTML = `
     <a class="brand-mark compact" href="/" aria-label="ALAP home">
@@ -254,7 +262,7 @@ ${paid ? `
     ` : `
       <div class="delivery-panel locked">
         <p class="eyebrow">Download link</p>
-        <p class="lock-message">🔒 Link will be available after payment</p>
+        <p class="lock-message">🔒 Link will be available after payment is verified</p>
       </div>
     `}
 
@@ -298,10 +306,20 @@ const loadTrackPage = async () => {
   }
 
   try {
+    console.log(`Loading track: ${id}`);
     const { track } = await requestJson(`/api/track/${encodeURIComponent(id)}`);
+    
+    console.log(`✓ Track loaded | Status: ${track.status} | Has Drive Link: ${!!track.driveLink}`);
+    
+    if (track.status === "PAID" && !track.driveLink) {
+      console.error("⚠️ SECURITY WARNING: Track status is PAID but driveLink is missing!");
+      throw new Error("Track data is incomplete. Please contact support.");
+    }
+    
     state.currentTrack = track;
     renderTrack(track);
   } catch (error) {
+    console.error(`✗ Failed to load track: ${error.message}`);
     card.innerHTML = `
       <p class="eyebrow">Unavailable</p>
       <h1>Track could not be loaded.</h1>
@@ -341,6 +359,8 @@ const startPayment = async (trackId) => {
         setMessage(message, "Verifying payment in your Razorpay account...");
 
         try {
+          console.log("Payment response received:", response.razorpay_payment_id);
+          
           const verification = await requestJson("/api/payment/verify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -352,26 +372,39 @@ const startPayment = async (trackId) => {
             }),
           });
 
+          if (!verification.verified) {
+            throw new Error("Payment could not be verified.");
+          }
+
+          if (!verification.track.driveLink) {
+            console.error("❌ SECURITY: Payment verified but driveLink is missing!");
+            throw new Error("Payment verified but link data is missing. Please contact support.");
+          }
+
+          console.log("✅ Payment verified successfully");
           state.currentTrack = verification.track;
           renderTrack(verification.track);
-          setMessage(document.querySelector("#paymentMessage"), "✅ Payment verified & credited to your account. Link unlocked.", "success");
+          setMessage(
+            document.querySelector("#paymentMessage"), 
+            "✅ Payment verified & credited to your account. Link unlocked!",
+            "success"
+          );
         } catch (error) {
-          console.error("Payment verification error:", error);
+          console.error("❌ Payment verification failed:", error.message);
           
-          // If payment not captured yet, show helpful message
-          if (error.message.includes("not captured")) {
-            setMessage(
-              document.querySelector("#paymentMessage"), 
-              "⏳ " + error.message + " Please wait or refresh the page in a few seconds.",
-              "error"
-            );
-          } else {
-            setMessage(
-              document.querySelector("#paymentMessage"), 
-              "❌ " + error.message,
-              "error"
-            );
-          }
+          // Show clear error message without unlocking link
+          const errorMessage = error.message.includes("not captured")
+            ? "⏳ Payment is processing. This can take a few moments. Please wait and refresh the page."
+            : "❌ Payment verification failed: " + error.message;
+          
+          setMessage(
+            document.querySelector("#paymentMessage"), 
+            errorMessage,
+            "error"
+          );
+          
+          // DO NOT render track - link stays locked
+          console.warn("Link NOT unlocked - payment not verified");
         }
       },
       modal: {

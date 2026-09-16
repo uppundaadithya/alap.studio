@@ -225,25 +225,50 @@ const assertOrderMatchesTrack = (track, order) => {
 const assertPaymentUnlocksTrack = async ({ track, order, razorpayOrderId, razorpayPaymentId }) => {
   assertOrderMatchesTrack(track, order);
 
-  const payment = await razorpay.payments.fetch(razorpayPaymentId);
+  let payment;
+  try {
+    payment = await razorpay.payments.fetch(razorpayPaymentId);
+  } catch (error) {
+    console.error("❌ PAYMENT LOOKUP FAILED:", error.message);
+    throw Object.assign(new Error("Payment could not be verified. Please try again."), { status: 400 });
+  }
+
   const expectedAmount = expectedTrackAmount(track);
 
+  // ❌ STRICT VALIDATION: Payment must belong to this order
   if (payment.order_id !== razorpayOrderId) {
+    console.error(`❌ PAYMENT MISMATCH - Payment Order: ${payment.order_id} vs Expected: ${razorpayOrderId}`);
     throw Object.assign(new Error("Payment does not belong to this order."), { status: 400 });
   }
 
-  if (Number(payment.amount) !== expectedAmount || payment.currency !== "INR") {
+  // ❌ STRICT VALIDATION: Amount must match exactly
+  if (Number(payment.amount) !== expectedAmount) {
+    console.error(`❌ AMOUNT MISMATCH - Paid: ${payment.amount} vs Required: ${expectedAmount}`);
     throw Object.assign(new Error("Paid amount does not match the required track amount."), { status: 400 });
   }
 
+  // ❌ STRICT VALIDATION: Currency must be INR
+  if (payment.currency !== "INR") {
+    console.error(`❌ CURRENCY MISMATCH - Got: ${payment.currency} vs Required: INR`);
+    throw Object.assign(new Error("Payment currency is not INR."), { status: 400 });
+  }
+
+  // ❌ STRICT VALIDATION: Payment MUST be captured (not just authorized or failed)
   if (payment.status !== "captured") {
-    throw Object.assign(new Error("Payment is not captured yet. Audio will unlock after payment is complete."), {
+    console.warn(`⏳ PAYMENT NOT CAPTURED - Status: ${payment.status} for Payment ID: ${razorpayPaymentId}`);
+    throw Object.assign(new Error(`Payment status is "${payment.status}", not "captured". Link will unlock when payment is verified.`), {
       status: 402,
     });
   }
 
-  // ✅ ACCOUNT CREDITED - Payment captured successfully
-  console.log(`✅ PAYMENT CREDITED TO YOUR ACCOUNT - Track: ${track.title} | Order: ${razorpayOrderId} | Amount: ${payment.amount / 100} INR | Payment ID: ${razorpayPaymentId}`);
+  // ❌ STRICT VALIDATION: Payment must not be refunded
+  if (payment.refund_status === "full_refunded" || payment.refund_status === "partial_refunded") {
+    console.error(`❌ PAYMENT REFUNDED - Status: ${payment.refund_status}`);
+    throw Object.assign(new Error("Payment has been refunded. Link cannot be unlocked."), { status: 400 });
+  }
+
+  // ✅ ALL CHECKS PASSED - ACCOUNT CREDITED
+  console.log(`✅ PAYMENT VERIFIED & CREDITED - Track: ${track.title} | Client: ${track.clientName} | Order: ${razorpayOrderId} | Amount: ₹${payment.amount / 100} | Payment ID: ${razorpayPaymentId} | Status: ${payment.status}`);
 
   return payment;
 };
@@ -535,6 +560,7 @@ app.post(
     const { trackId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
     if (!trackId || !razorpay_order_id || !razorpay_payment_id) {
+      console.error("❌ INCOMPLETE PAYMENT VERIFICATION PAYLOAD");
       return res.status(400).json({ error: "Payment verification payload is incomplete." });
     }
 
@@ -542,15 +568,18 @@ app.post(
     const order = await getOrderById(razorpay_order_id);
 
     if (!track || !order || order.trackId !== track.id) {
+      console.error(`❌ ORDER MISMATCH - Track: ${trackId}, Order: ${razorpay_order_id}`);
       return res.status(400).json({ error: "Payment order does not match this track." });
     }
 
     requireRazorpayConfig();
 
     if (!razorpay_signature) {
+      console.error("❌ MISSING RAZORPAY SIGNATURE");
       return res.status(400).json({ error: "Payment verification payload is incomplete." });
     }
 
+    // ❌ VERIFY SIGNATURE (prevents forged payments)
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
@@ -563,16 +592,24 @@ app.post(
       expectedBuffer.length !== receivedBuffer.length ||
       !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
     ) {
-      return res.status(400).json({ error: "Invalid payment signature." });
+      console.error(`❌ INVALID SIGNATURE - Expected: ${expectedSignature} vs Got: ${razorpay_signature}`);
+      return res.status(400).json({ error: "Invalid payment signature. Payment verification failed." });
     }
 
-    await assertPaymentUnlocksTrack({
-      track,
-      order,
-      razorpayOrderId: razorpay_order_id,
-      razorpayPaymentId: razorpay_payment_id,
-    });
+    // ❌ VERIFY PAYMENT IS ACTUALLY CAPTURED IN RAZORPAY
+    try {
+      await assertPaymentUnlocksTrack({
+        track,
+        order,
+        razorpayOrderId: razorpay_order_id,
+        razorpayPaymentId: razorpay_payment_id,
+      });
+    } catch (error) {
+      console.error(`❌ PAYMENT VERIFICATION FAILED: ${error.message}`);
+      return res.status(error.status || 400).json({ error: error.message });
+    }
 
+    // ✅ ONLY IF ALL CHECKS PASS, mark track as paid and unlock link
     const paidTrack = await markTrackPaid({
       trackId: track.id,
       razorpayOrderId: razorpay_order_id,
@@ -593,6 +630,7 @@ app.post(
       trackData.password = paidTrack.password;
     }
 
+    console.log(`✅ TRACK UNLOCKED - Payment verified, link and password ready for client`);
     res.json({
       verified: true,
       track: trackData,
