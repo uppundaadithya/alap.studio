@@ -68,6 +68,46 @@ const copyToClipboard = async (text) => {
   }
 };
 
+const loadDashboardPayments = async () => {
+  const table = document.querySelector("#paymentsTable");
+  if (!table) return;
+
+  try {
+    const { payments, summary } = await requestJson("/api/payments");
+
+    if (!payments.length) {
+      table.innerHTML = '<tr><td colspan="5" class="muted-cell">No payments received yet.</td></tr>';
+      return;
+    }
+
+    table.innerHTML = payments
+      .map((payment) => {
+        const paidDate = new Date(payment.paidAt).toLocaleDateString('en-IN', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        });
+        return `
+          <tr>
+            <td>
+              <strong>${escapeHtml(payment.title)}</strong>
+            </td>
+            <td>
+              ${escapeHtml(payment.clientName)}<br />
+              <small>${escapeHtml(payment.clientEmail)}</small>
+            </td>
+            <td><strong>${formatCurrency(payment.amount)}</strong></td>
+            <td><span class="status paid">${payment.status}</span></td>
+            <td>${paidDate}</td>
+          </tr>
+        `;
+      })
+      .join("");
+  } catch (error) {
+    table.innerHTML = `<tr><td colspan="5" class="muted-cell">${escapeHtml(error.message)}</td></tr>`;
+  }
+};
+
 const loadDashboardTracks = async () => {
   const table = document.querySelector("#tracksTable");
   if (!table) return;
@@ -116,6 +156,7 @@ const initDashboard = () => {
   const message = document.querySelector("#uploadMessage");
   const shareResult = document.querySelector("#shareResult");
 
+  loadDashboardPayments();
   loadDashboardTracks();
 
   form?.addEventListener("submit", async (event) => {
@@ -165,6 +206,15 @@ const initDashboard = () => {
     } finally {
       submitButton.disabled = false;
     }
+  });
+
+  document.querySelector("#refreshPayments")?.addEventListener("click", async () => {
+    const btn = document.querySelector("#refreshPayments");
+    btn.disabled = true;
+    btn.textContent = "↻ Refreshing...";
+    await loadDashboardPayments();
+    btn.disabled = false;
+    btn.textContent = "↻ Refresh";
   });
 };
 

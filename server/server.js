@@ -645,6 +645,41 @@ app.post(
 );
 
 app.get(
+  "/api/payments",
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    const tracks = await listTracks();
+    const payments = tracks
+      .filter(track => track.status === "PAID")
+      .map(track => ({
+        id: track.razorpayPaymentId,
+        orderId: track.razorpayOrderId,
+        trackId: track.id,
+        title: track.title,
+        clientName: track.clientName,
+        clientEmail: track.clientEmail,
+        amount: track.price,
+        currency: "INR",
+        status: "CAPTURED",
+        paidAt: track.paidAt,
+        createdAt: track.createdAt,
+      }))
+      .sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
+
+    const totalAmount = payments.reduce((sum, p) => sum + p.amount, 0);
+
+    res.json({
+      payments,
+      summary: {
+        totalPayments: payments.length,
+        totalAmount,
+        currency: "INR",
+      },
+    });
+  }),
+);
+
+app.get(
   "/api/download/:id",
   asyncHandler(async (req, res) => {
     const track = await getTrackById(req.params.id);
