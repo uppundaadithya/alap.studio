@@ -338,22 +338,41 @@ const startPayment = async (trackId) => {
         color: "#ff3038",
       },
       handler: async (response) => {
-        setMessage(message, "Verifying payment...");
+        setMessage(message, "Verifying payment in your Razorpay account...");
 
-        const verification = await requestJson("/api/payment/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            trackId,
-            razorpay_order_id: response.razorpay_order_id,
-            razorpay_payment_id: response.razorpay_payment_id,
-            razorpay_signature: response.razorpay_signature,
-          }),
-        });
+        try {
+          const verification = await requestJson("/api/payment/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              trackId,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            }),
+          });
 
-        state.currentTrack = verification.track;
-        renderTrack(verification.track);
-        setMessage(document.querySelector("#paymentMessage"), "Payment verified. Download unlocked.", "success");
+          state.currentTrack = verification.track;
+          renderTrack(verification.track);
+          setMessage(document.querySelector("#paymentMessage"), "✅ Payment verified & credited to your account. Link unlocked.", "success");
+        } catch (error) {
+          console.error("Payment verification error:", error);
+          
+          // If payment not captured yet, show helpful message
+          if (error.message.includes("not captured")) {
+            setMessage(
+              document.querySelector("#paymentMessage"), 
+              "⏳ " + error.message + " Please wait or refresh the page in a few seconds.",
+              "error"
+            );
+          } else {
+            setMessage(
+              document.querySelector("#paymentMessage"), 
+              "❌ " + error.message,
+              "error"
+            );
+          }
+        }
       },
       modal: {
         ondismiss: () => {

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Check Payment Status | ALAP</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .check-payment-container {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+
+    .payment-form {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .form-group label {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .form-group input {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--text);
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 0.9rem;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: rgba(0, 0, 0, 0.3);
+    }
+
+    .payment-status {
+      margin-top: 24px;
+      padding: 16px;
+      border-radius: var(--radius);
+      border-left: 4px solid;
+    }
+
+    .payment-status.captured {
+      background: rgba(76, 175, 80, 0.1);
+      border-left-color: #4caf50;
+    }
+
+    .payment-status.pending {
+      background: rgba(255, 152, 0, 0.1);
+      border-left-color: #ff9800;
+    }
+
+    .payment-status.error {
+      background: rgba(244, 67, 54, 0.1);
+      border-left-color: #f44336;
+    }
+
+    .payment-status h3 {
+      margin: 0 0 8px 0;
+      font-size: 1.1rem;
+    }
+
+    .payment-status p {
+      margin: 4px 0;
+      font-size: 0.9rem;
+    }
+
+    .payment-status .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      margin-top: 8px;
+    }
+
+    .payment-status.captured .status-badge {
+      background: #4caf50;
+      color: white;
+    }
+
+    .payment-status.pending .status-badge {
+      background: #ff9800;
+      color: white;
+    }
+
+    .payment-status.error .status-badge {
+      background: #f44336;
+      color: white;
+    }
+  </style>
+</head>
+<body data-page="check-payment">
+  <main class="container">
+    <section class="panel check-payment-container">
+      <a class="brand-mark compact" href="/" aria-label="ALAP home">
+        <img src="/alap-logo.png" alt="ALAP Music & SFX" />
+      </a>
+      
+      <p class="eyebrow">Payment verification</p>
+      <h2>Check payment status</h2>
+      <p class="lede">Enter your payment details to verify if your payment has been captured and credited.</p>
+
+      <form class="payment-form" id="checkPaymentForm">
+        <div class="form-group">
+          <label for="orderId">Order ID from Razorpay *</label>
+          <input 
+            type="text" 
+            id="orderId" 
+            name="orderId" 
+            placeholder="order_XXXXXXXXXXXX" 
+            required 
+          />
+          <small style="color: var(--text-muted); font-size: 0.8rem;">Found in your Razorpay payment receipt or email</small>
+        </div>
+
+        <div class="form-group">
+          <label for="paymentId">Payment ID from Razorpay *</label>
+          <input 
+            type="text" 
+            id="paymentId" 
+            name="paymentId" 
+            placeholder="pay_XXXXXXXXXXXX" 
+            required 
+          />
+          <small style="color: var(--text-muted); font-size: 0.8rem;">Found in your Razorpay payment receipt or email</small>
+        </div>
+
+        <button type="submit" class="primary-button">Check Payment Status</button>
+      </form>
+
+      <div id="statusResult"></div>
+      <p id="statusMessage" class="message" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <script src="/browser-client.mjs?v=payment-checker-1" type="module" defer></script>
+  <script>
+    // Inline payment checker for this page
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.querySelector('#checkPaymentForm');
+      const resultDiv = document.querySelector('#statusResult');
+      const messageEl = document.querySelector('#statusMessage');
+
+      form?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const orderId = document.querySelector('#orderId').value.trim();
+        const paymentId = document.querySelector('#paymentId').value.trim();
+
+        messageEl.textContent = 'Checking payment status...';
+        messageEl.className = 'message';
+        resultDiv.innerHTML = '';
+
+        try {
+          const response = await fetch('/api/payment/check-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_order_id: orderId,
+              razorpay_payment_id: paymentId,
+            })
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to check payment status');
+          }
+
+          const statusClass = data.isCaptured ? 'captured' : 'pending';
+          const statusText = data.isCaptured ? 'CAPTURED ✅' : 'PENDING ⏳';
+
+          resultDiv.innerHTML = `
+            <div class="payment-status ${statusClass}">
+              <h3>Payment Status</h3>
+              <p><strong>Amount:</strong> ₹${data.amount}</p>
+              <p><strong>Status:</strong> ${data.status.toUpperCase()}</p>
+              <p><strong>Payment ID:</strong> <code>${data.paymentId}</code></p>
+              <p><strong>Order ID:</strong> <code>${data.orderId}</code></p>
+              <p><strong>Date:</strong> ${data.createdAt}</p>
+              <p style="margin-top: 12px; color: var(--text); font-size: 0.95rem;">
+                ${data.message}
+              </p>
+              <span class="status-badge">${statusText}</span>
+            </div>
+          `;
+
+          messageEl.textContent = '';
+          messageEl.className = 'message';
+
+        } catch (error) {
+          resultDiv.innerHTML = `
+            <div class="payment-status error">
+              <h3>Status Check Failed</h3>
+              <p>${error.message}</p>
+              <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">
+                Make sure you entered the correct Order ID and Payment ID from your Razorpay email receipt.
+              </p>
+            </div>
+          `;
+          messageEl.textContent = '';
+          messageEl.className = 'message error';
+        }
+      });
+    });
+  </script>
+</body>
+</html>

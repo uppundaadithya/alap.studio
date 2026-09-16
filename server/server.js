@@ -242,6 +242,9 @@ const assertPaymentUnlocksTrack = async ({ track, order, razorpayOrderId, razorp
     });
   }
 
+  // ✅ ACCOUNT CREDITED - Payment captured successfully
+  console.log(`✅ PAYMENT CREDITED TO YOUR ACCOUNT - Track: ${track.title} | Order: ${razorpayOrderId} | Amount: ${payment.amount / 100} INR | Payment ID: ${razorpayPaymentId}`);
+
   return payment;
 };
 
@@ -676,6 +679,45 @@ app.get(
         currency: "INR",
       },
     });
+  }),
+);
+
+app.post(
+  "/api/payment/check-status",
+  asyncHandler(async (req, res) => {
+    const { razorpay_payment_id, razorpay_order_id } = req.body;
+
+    if (!razorpay_payment_id || !razorpay_order_id) {
+      return res.status(400).json({ error: "Payment ID and Order ID are required." });
+    }
+
+    requireRazorpayConfig();
+
+    try {
+      const payment = await razorpay.payments.fetch(razorpay_payment_id);
+      const order = await razorpay.orders.fetch(razorpay_order_id);
+
+      const isCaptured = payment.status === "captured";
+      const amount = payment.amount / 100; // Convert paise to rupees
+
+      res.json({
+        paymentId: razorpay_payment_id,
+        orderId: razorpay_order_id,
+        status: payment.status,
+        isCaptured,
+        amount,
+        currency: payment.currency,
+        message: isCaptured 
+          ? `✅ Payment of ₹${amount} has been CAPTURED and credited to your account!`
+          : `⏳ Payment is ${payment.status}. Waiting for capture. Link will unlock automatically.`,
+        createdAt: new Date(payment.created_at * 1000).toLocaleString(),
+      });
+    } catch (error) {
+      res.status(400).json({ 
+        error: "Payment not found. Please check the payment ID and order ID.",
+        details: error.message
+      });
+    }
   }),
 );
 
