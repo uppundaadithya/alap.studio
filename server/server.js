@@ -248,7 +248,7 @@ const assertPaymentUnlocksTrack = async ({ track, order, razorpayOrderId, razorp
 app.post(
   "/api/upload",
   asyncHandler(async (req, res) => {
-    const { title, clientName, clientEmail, price, driveLink } = req.body;
+    const { title, clientName, clientEmail, price, driveLink, password } = req.body;
 
     if (!title || !clientName || !clientEmail || !price || Number(price) <= 0) {
       return res.status(400).json({ error: "Title, client details, and valid price are required." });
@@ -265,6 +265,7 @@ app.post(
       price: Number(price),
       producerName: PRODUCER_NAME,
       driveLink: driveLink.trim(),
+      password: password ? password.trim() : null,
       fileName: "Shared file",
       mimeType: "application/octet-stream",
       storageMode: "drive-link",
@@ -304,9 +305,14 @@ app.get(
       audioUrl: `/api/audio/${encodeURIComponent(track.id)}`,
     };
 
-    // Include drive link if paid
-    if (track.status === "PAID" && track.driveLink) {
-      trackData.driveLink = track.driveLink;
+    // Include drive link and password if paid
+    if (track.status === "PAID") {
+      if (track.driveLink) {
+        trackData.driveLink = track.driveLink;
+      }
+      if (track.password) {
+        trackData.password = track.password;
+      }
     }
 
     res.json({ track: trackData });
@@ -570,13 +576,23 @@ app.post(
       razorpayPaymentId: razorpay_payment_id,
     });
 
-res.json({
+    const trackData = {
+      ...publicTrack(paidTrack),
+      previewUrl: `/api/preview/${encodeURIComponent(paidTrack.id)}`,
+      audioUrl: `/api/audio/${encodeURIComponent(paidTrack.id)}`,
+    };
+
+    // Include driveLink and password since payment is verified and complete
+    if (paidTrack.driveLink) {
+      trackData.driveLink = paidTrack.driveLink;
+    }
+    if (paidTrack.password) {
+      trackData.password = paidTrack.password;
+    }
+
+    res.json({
       verified: true,
-      track: {
-        ...publicTrack(paidTrack),
-        previewUrl: `/api/preview/${encodeURIComponent(paidTrack.id)}`,
-        audioUrl: `/api/audio/${encodeURIComponent(paidTrack.id)}`,
-      },
+      track: trackData,
     });
   }),
 );

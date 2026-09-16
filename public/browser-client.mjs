@@ -133,6 +133,7 @@ const initDashboard = () => {
         clientEmail: formData.get("clientEmail"),
         price: formData.get("price"),
         driveLink: formData.get("driveLink"),
+        password: formData.get("password") || "",
       };
 
       const result = await requestJson("/api/upload", {
@@ -192,6 +193,13 @@ ${paid ? `
         <div class="drive-link-box">
           <a href="${track.driveLink}" target="_blank" rel="noreferrer" class="drive-link">${escapeHtml(track.driveLink)}</a>
         </div>
+        ${track.password ? `
+        <p class="eyebrow" style="margin-top: 16px; margin-bottom: 8px;">Password</p>
+        <div class="password-box">
+          <code class="password-text">${escapeHtml(track.password)}</code>
+          <button id="copyPassword" class="password-copy-btn" type="button" title="Copy password">📋</button>
+        </div>
+        ` : ''}
       </div>
     ` : `
       <div class="delivery-panel locked">
@@ -217,6 +225,10 @@ ${paid ? `
     document.querySelector("#copyLink")?.addEventListener("click", async () => {
       await copyToClipboard(track.driveLink);
       setMessage(document.querySelector("#paymentMessage"), "Link copied to clipboard.", "success");
+    });
+    document.querySelector("#copyPassword")?.addEventListener("click", async () => {
+      await copyToClipboard(track.password);
+      setMessage(document.querySelector("#paymentMessage"), "Password copied to clipboard.", "success");
     });
   }
 };
