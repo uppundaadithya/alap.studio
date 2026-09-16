@@ -172,6 +172,13 @@ const removeUploadedFile = (file) => {
 
 const centsFromInr = (price) => Math.round(Number(price) * 100);
 
+const safeAudioFileName = (fileName = "audio") => {
+  const parsed = path.parse(fileName);
+  const base = parsed.name.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "audio";
+  const ext = parsed.ext.toLowerCase() || ".mp3";
+  return `${base}${ext}`;
+};
+
 const expectedTrackAmount = (track) => centsFromInr(track.price);
 
 const assertOrderMatchesTrack = (track, order) => {
@@ -215,25 +222,25 @@ app.post(
       return res.status(400).json({ error: "Audio file is required." });
     }
 
-    // Enforce Firebase-only storage: do not persist files or payment data locally.
-    if (databaseMode !== "firestore") {
-      removeUploadedFile(req.file);
-      return res.status(500).json({
-        error:
-          "Server is configured to require Firebase for storage. Set FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY in Vercel environment variables.",
-      });
-    }
-
     if (!title || !clientName || !clientEmail || !price || Number(price) <= 0) {
       removeUploadedFile(req.file);
       return res.status(400).json({ error: "Title, client details, and valid price are required." });
     }
 
-    // Upload will use Firebase Storage (databaseMode === 'firestore')
     let storagePath = null;
-    let storageMode = "gcs";
+    let storageMode = databaseMode === "firestore" ? "gcs" : "local";
     let createdTrackDuringUpload = null;
-    if (req.file && req.file.buffer) {
+    if (databaseMode !== "firestore") {
+      try {
+        await fs.promises.mkdir(PRIVATE_UPLOAD_DIR, { recursive: true });
+        const localFileName = `${uuidv4()}-${safeAudioFileName(req.file.originalname)}`;
+        storagePath = path.join(PRIVATE_UPLOAD_DIR, localFileName);
+        await fs.promises.writeFile(storagePath, req.file.buffer);
+      } catch (err) {
+        console.error("Local upload failed:", err && err.message);
+        return res.status(500).json({ error: "Failed to save uploaded audio locally." });
+      }
+    } else if (req.file && req.file.buffer) {
       const db = require("./database");
       const reservedId = typeof db.generateId === "function" ? db.generateId() : null;
       try {
