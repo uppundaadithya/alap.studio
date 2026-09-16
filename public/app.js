@@ -252,55 +252,11 @@ const startPayment = async (trackId) => {
   setMessage(message, "Creating secure payment order...");
 
   try {
-    const { order, keyId, track, demoMode, paymentPageUrl } = await requestJson("/api/payment/order", {
+    const { order, keyId, track } = await requestJson("/api/payment/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ trackId }),
     });
-
-if (demoMode) {
-      // No Razorpay API credentials configured. Embed the payment section
-      // directly on the same page with the amount auto-set from the order.
-      const paymentActions = document.querySelector("#paymentActions");
-      paymentActions.innerHTML = `
-        <div class="inline-payment">
-          <div class="inline-payment-amount">
-            <span>Amount to pay</span>
-            <strong>${formatCurrency(track.price)}</strong>
-          </div>
-          <button id="demoPayButton" class="primary-button" type="button">
-            Pay ${formatCurrency(track.price)}
-          </button>
-        </div>
-      `;
-
-      document.querySelector("#demoPayButton")?.addEventListener("click", async () => {
-        const payBtn = document.querySelector("#demoPayButton");
-        payBtn.disabled = true;
-        setMessage(message, "Processing payment...");
-
-        try {
-          const verification = await requestJson("/api/payment/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              trackId,
-              razorpay_order_id: order.id,
-              razorpay_payment_id: `demo_payment_${Date.now()}`,
-            }),
-          });
-
-          state.currentTrack = verification.track;
-          renderTrack(verification.track);
-          setMessage(document.querySelector("#paymentMessage"), "Payment successful. Audio unlocked.", "success");
-        } catch (verificationError) {
-          payBtn.disabled = false;
-          setMessage(message, verificationError.message, "error");
-        }
-      });
-
-      return;
-    }
 
     const checkout = new Razorpay({
       key: keyId,

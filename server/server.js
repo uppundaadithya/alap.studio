@@ -40,9 +40,6 @@ const PORT = Number(process.env.PORT || 3000);
 const PRODUCER_NAME = process.env.PRODUCER_NAME || "Aalap Studio";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "alap-admin-change-me";
-// Razorpay Payment Page used when API credentials are not configured.
-const PAYMENT_PAGE_URL =
-  process.env.RAZORPAY_PAYMENT_LINK || "https://razorpay.me/@adithya8106";
 const PREVIEW_BYTES = Number(process.env.PREVIEW_BYTES || 1024 * 1024 * 2);
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 const PRIVATE_UPLOAD_DIR = process.env.PRIVATE_UPLOAD_DIR || path.join(os.tmpdir(), "alap_private_uploads");
@@ -88,10 +85,20 @@ app.use(
           "https://checkout.razorpay.com",
           "https://cdn.razorpay.com",
           "https://*.razorpay.com",
+          "https://www.gstatic.com",
+          "https://www.googletagmanager.com",
           "https://vercel.live",
           "https://*.vercel.live",
         ],
-        connectSrc: ["'self'", "https://*.razorpay.com"],
+        connectSrc: [
+          "'self'",
+          "https://*.razorpay.com",
+          "https://*.googleapis.com",
+          "https://*.firebaseio.com",
+          "https://*.firebaseapp.com",
+          "https://www.google-analytics.com",
+          "https://region1.google-analytics.com",
+        ],
         frameSrc: [
           "https://api.razorpay.com",
           "https://checkout.razorpay.com",
@@ -164,6 +171,39 @@ const removeUploadedFile = (file) => {
 };
 
 const centsFromInr = (price) => Math.round(Number(price) * 100);
+
+const expectedTrackAmount = (track) => centsFromInr(track.price);
+
+const assertOrderMatchesTrack = (track, order) => {
+  const expectedAmount = expectedTrackAmount(track);
+
+  if (Number(order.amount) !== expectedAmount || order.currency !== "INR") {
+    throw Object.assign(new Error("Payment order amount does not match this track."), { status: 400 });
+  }
+};
+
+const assertPaymentUnlocksTrack = async ({ track, order, razorpayOrderId, razorpayPaymentId }) => {
+  assertOrderMatchesTrack(track, order);
+
+  const payment = await razorpay.payments.fetch(razorpayPaymentId);
+  const expectedAmount = expectedTrackAmount(track);
+
+  if (payment.order_id !== razorpayOrderId) {
+    throw Object.assign(new Error("Payment does not belong to this order."), { status: 400 });
+  }
+
+  if (Number(payment.amount) !== expectedAmount || payment.currency !== "INR") {
+    throw Object.assign(new Error("Paid amount does not match the required track amount."), { status: 400 });
+  }
+
+  if (payment.status !== "captured") {
+    throw Object.assign(new Error("Payment is not captured yet. Audio will unlock after payment is complete."), {
+      status: 402,
+    });
+  }
+
+  return payment;
+};
 
 app.post(
   "/api/upload",
@@ -482,33 +522,11 @@ app.post(
       return res.status(409).json({ error: "This track is already paid and unlocked." });
     }
 
-    if (!hasRazorpayConfig()) {
-      const order = {
-        id: `demo_order_${uuidv4()}`,
-        amount: centsFromInr(track.price),
-        currency: "INR",
-        status: "created",
-      };
-
-      await attachOrderToTrack({
-        trackId: track.id,
-        razorpayOrderId: order.id,
-        amount: order.amount,
-        currency: order.currency,
-      });
-
-      return res.json({
-        demoMode: true,
-        paymentPageUrl: PAYMENT_PAGE_URL,
-        order,
-        track: publicTrack(track),
-      });
-    }
-
     requireRazorpayConfig();
 
+    const amount = expectedTrackAmount(track);
     const order = await razorpay.orders.create({
-      amount: centsFromInr(track.price),
+      amount,
       currency: "INR",
       receipt: `track_${track.id.slice(0, 24)}`,
       notes: {
@@ -549,28 +567,6 @@ app.post(
       return res.status(400).json({ error: "Payment order does not match this track." });
     }
 
-    if (!hasRazorpayConfig()) {
-      if (!razorpay_order_id.startsWith("demo_order_") || !razorpay_payment_id.startsWith("demo_payment_")) {
-        return res.status(400).json({ error: "Invalid demo payment payload." });
-      }
-
-      const paidTrack = await markTrackPaid({
-        trackId: track.id,
-        razorpayOrderId: razorpay_order_id,
-        razorpayPaymentId: razorpay_payment_id,
-      });
-
-return res.json({
-        verified: true,
-        demoMode: true,
-        track: {
-          ...publicTrack(paidTrack),
-          previewUrl: `/api/preview/${encodeURIComponent(paidTrack.id)}`,
-          audioUrl: `/api/audio/${encodeURIComponent(paidTrack.id)}`,
-        },
-      });
-    }
-
     requireRazorpayConfig();
 
     if (!razorpay_signature) {
@@ -591,6 +587,13 @@ return res.json({
     ) {
       return res.status(400).json({ error: "Invalid payment signature." });
     }
+
+    await assertPaymentUnlocksTrack({
+      track,
+      order,
+      razorpayOrderId: razorpay_order_id,
+      razorpayPaymentId: razorpay_payment_id,
+    });
 
     const paidTrack = await markTrackPaid({
       trackId: track.id,
@@ -633,6 +636,17 @@ app.post(
       const payment = event.payload.payment.entity;
       const order = await getOrderById(payment.order_id);
       if (order?.trackId) {
+        const track = await getTrackById(order.trackId);
+        if (
+          !track ||
+          Number(payment.amount) !== expectedTrackAmount(track) ||
+          payment.currency !== "INR" ||
+          Number(order.amount) !== expectedTrackAmount(track) ||
+          order.currency !== "INR"
+        ) {
+          return res.status(400).json({ error: "Webhook payment amount does not match the track amount." });
+        }
+
         await markTrackPaid({
           trackId: order.trackId,
           razorpayOrderId: payment.order_id,
