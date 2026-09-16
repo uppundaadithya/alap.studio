@@ -60,20 +60,20 @@ const razorpay = hasRazorpayConfig()
 
 const allowedMimeTypes = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave"]);
 
-// Use memoryStorage so we can upload directly to Firebase Storage if configured.
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: Number(process.env.MAX_UPLOAD_BYTES || 200 * 1024 * 1024),
-  },
-  fileFilter: (_req, file, callback) => {
-    if (!allowedMimeTypes.has(file.mimetype)) {
-      callback(new Error("Only WAV and MP3 files are allowed."));
-      return;
-    }
-    callback(null, true);
-  },
-});
+// Note: File upload temporarily disabled. Using Google Drive links instead.
+// const upload = multer({
+//   storage: multer.memoryStorage(),
+//   limits: {
+//     fileSize: Number(process.env.MAX_UPLOAD_BYTES || 200 * 1024 * 1024),
+//   },
+//   fileFilter: (_req, file, callback) => {
+//     if (!allowedMimeTypes.has(file.mimetype)) {
+//       callback(new Error("Only WAV and MP3 files are allowed."));
+//       return;
+//     }
+//     callback(null, true);
+//   },
+// });
 
 app.use(
   helmet({
@@ -247,115 +247,42 @@ const assertPaymentUnlocksTrack = async ({ track, order, razorpayOrderId, razorp
 
 app.post(
   "/api/upload",
-  upload.single("audio"),
   asyncHandler(async (req, res) => {
-    const { title, clientName, clientEmail, price } = req.body;
-
-    if (!req.file) {
-      return res.status(400).json({ error: "Audio file is required." });
-    }
+    const { title, clientName, clientEmail, price, driveLink } = req.body;
 
     if (!title || !clientName || !clientEmail || !price || Number(price) <= 0) {
-      removeUploadedFile(req.file);
       return res.status(400).json({ error: "Title, client details, and valid price are required." });
     }
 
-    let storagePath = null;
-    let storageMode = databaseMode === "firestore" ? "gcs" : "local";
-    let createdTrackDuringUpload = null;
-    if (databaseMode !== "firestore") {
-      try {
-        await fs.promises.mkdir(PRIVATE_UPLOAD_DIR, { recursive: true });
-        const localFileName = `${uuidv4()}-${safeAudioFileName(req.file.originalname)}`;
-        storagePath = path.join(PRIVATE_UPLOAD_DIR, localFileName);
-        await fs.promises.writeFile(storagePath, req.file.buffer);
-      } catch (err) {
-        console.error("Local upload failed:", err && err.message);
-        return res.status(500).json({ error: "Failed to save uploaded audio locally." });
-      }
-    } else if (req.file && req.file.buffer) {
-      const db = require("./database");
-      const reservedId = typeof db.generateId === "function" ? db.generateId() : null;
-      try {
-        const extension = path.extname(req.file.originalname).toLowerCase();
-        const destination = `tracks/${reservedId || uuidv4()}${extension}`;
-        const result = await uploadBufferToStorage(req.file.buffer, destination, req.file.mimetype);
-        storagePath = `${result.bucket}/${result.name}`;
-        storageMode = "gcs";
-
-        // If we have a reserved ID, create the Firestore document with that ID.
-        if (reservedId && typeof db.createTrackWithId === "function") {
-          try {
-            const created = await db.createTrackWithId(reservedId, {
-              title: title.trim(),
-              clientName: clientName.trim(),
-              clientEmail: clientEmail.trim().toLowerCase(),
-              price: Number(price),
-              producerName: PRODUCER_NAME,
-              fileName: req.file.originalname,
-              mimeType: req.file.mimetype,
-              storagePath: `${result.bucket}/${result.name}`,
-              storageMode: "gcs",
-            });
-            createdTrackDuringUpload = created;
-          } catch (innerErr) {
-            console.warn("Failed to create Firestore track doc after upload:", innerErr && innerErr.message);
-          }
-        }
-      } catch (err) {
-        console.error("GCS upload failed:", err && err.message);
-        removeUploadedFile(req.file);
-        return res.status(500).json({ error: "Failed to upload to Firebase Storage. Check Firebase credentials and storage bucket." });
-      }
+    if (!driveLink) {
+      return res.status(400).json({ error: "Google Drive link is required." });
     }
 
-    // If the store supports generated IDs, prefer to create using the
-    // already-reserved ID; otherwise fall back to createTrack.
-    const db2 = require("./database");
-    let track = null;
-
-    if (createdTrackDuringUpload) {
-      track = createdTrackDuringUpload;
+    // Validate that it's a Google Drive link
+    if (!driveLink.includes("drive.google.com") && !driveLink.includes("docs.google.com")) {
+      return res.status(400).json({ error: "Please provide a valid Google Drive link." });
     }
 
-    // If we already created a Firestore doc during upload (reservedId path)
-    // the store's createTrackWithId would have returned the doc. If not,
-    // fall back to creating the track normally.
-    if (storageMode === "gcs" && typeof db2.createTrackWithId === "function") {
-      // Attempt to find an existing track by storagePath first (best-effort).
-      // Some stores may not support querying; in that case create a new doc.
-      try {
-        // Not all stores implement search by storagePath; skip if unavailable.
-        if (typeof db2.getTrackByStoragePath === "function") {
-          track = await db2.getTrackByStoragePath(storagePath);
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    if (!track) {
-      track = await createTrack({
-        title: title.trim(),
-        clientName: clientName.trim(),
-        clientEmail: clientEmail.trim().toLowerCase(),
-        price: Number(price),
-        producerName: PRODUCER_NAME,
-        fileName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        storagePath,
-        storageMode,
-      });
-    }
+    const track = await createTrack({
+      title: title.trim(),
+      clientName: clientName.trim(),
+      clientEmail: clientEmail.trim().toLowerCase(),
+      price: Number(price),
+      producerName: PRODUCER_NAME,
+      driveLink: driveLink.trim(),
+      fileName: "Google Drive file",
+      mimeType: "application/octet-stream",
+      storageMode: "drive-link",
+    });
 
     const trackLinks = buildTrackLinks(req, track.id);
-    track = await updateTrackFields(track.id, trackLinks);
+    const updatedTrack = await updateTrackFields(track.id, trackLinks);
 
     res.status(201).json({
-      trackId: track.id,
-      title: track.title,
-      link: track.deliveryLink,
-      linkPath: track.linkPath,
+      trackId: updatedTrack.id,
+      title: updatedTrack.title,
+      link: updatedTrack.deliveryLink,
+      linkPath: updatedTrack.linkPath,
     });
   }),
 );
@@ -376,13 +303,18 @@ app.get(
       return res.status(404).json({ error: "Track not found." });
     }
 
-    res.json({
-      track: {
-        ...publicTrack(track),
-        previewUrl: `/api/preview/${encodeURIComponent(track.id)}`,
-        audioUrl: `/api/audio/${encodeURIComponent(track.id)}`,
-      },
-    });
+    const trackData = {
+      ...publicTrack(track),
+      previewUrl: `/api/preview/${encodeURIComponent(track.id)}`,
+      audioUrl: `/api/audio/${encodeURIComponent(track.id)}`,
+    };
+
+    // Include drive link if paid
+    if (track.status === "PAID" && track.driveLink) {
+      trackData.driveLink = track.driveLink;
+    }
+
+    res.json({ track: trackData });
   }),
 );
 

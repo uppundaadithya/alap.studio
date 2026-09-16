@@ -122,14 +122,23 @@ const initDashboard = () => {
     event.preventDefault();
 
     const submitButton = form.querySelector("button[type='submit']");
-    const formData = new FormData(form);
     submitButton.disabled = true;
-    setMessage(message, "Uploading your master...");
+    setMessage(message, "Saving your track...");
 
     try {
+      const formData = new FormData(form);
+      const data = {
+        title: formData.get("title"),
+        clientName: formData.get("clientName"),
+        clientEmail: formData.get("clientEmail"),
+        price: formData.get("price"),
+        driveLink: formData.get("driveLink"),
+      };
+
       const result = await requestJson("/api/upload", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
       });
 
       const shareUrl = result.link || getTrackUrl(result.trackId);
@@ -148,7 +157,7 @@ const initDashboard = () => {
       });
 
       form.reset();
-      setMessage(message, "Track uploaded and secure link generated.", "success");
+      setMessage(message, "Track saved and secure link generated.", "success");
       await loadDashboardTracks();
     } catch (error) {
       setMessage(message, error.message, "error");
@@ -177,26 +186,19 @@ const renderTrack = (track) => {
       <span class="meta-pill">${paid ? "Payment complete" : "Payment pending"}</span>
     </div>
 
-${
-      paid
-        ? `
-      <div class="audio-panel unlocked">
-        <p class="eyebrow">Full audio</p>
-        <audio controls preload="metadata" src="${track.audioUrl}"></audio>
-      </div>
-    `
-        : `
-      <div class="audio-panel locked">
-        <p class="eyebrow">Preview</p>
-        <audio controls preload="metadata" src="${track.previewUrl}"></audio>
-        <div class="lock-overlay">
-          <span class="lock-icon" aria-hidden="true">&#128274;</span>
-          <strong>Preview only</strong>
-          <p>Pay to unlock the full audio player.</p>
+${paid ? `
+      <div class="delivery-panel unlocked">
+        <p class="eyebrow">Download link</p>
+        <div class="drive-link-box">
+          <a href="${track.driveLink}" target="_blank" rel="noreferrer" class="drive-link">${escapeHtml(track.driveLink)}</a>
         </div>
       </div>
-    `
-    }
+    ` : `
+      <div class="delivery-panel locked">
+        <p class="eyebrow">Google Drive link</p>
+        <p class="lock-message">🔒 Link will be available after payment</p>
+      </div>
+    `}
 
     <div class="price-line">
       <span>${paid ? "Full audio unlocked" : "Unlock full-quality audio"}</span>
@@ -204,17 +206,18 @@ ${
     </div>
 
     <div id="paymentActions" class="action-row">
-      ${
-        paid
-          ? `<a class="primary-button download-button" href="/api/download/${encodeURIComponent(track.id)}">Download Full Quality Audio</a>`
-          : `<button id="payButton" class="primary-button" type="button">Pay & Unlock Audio</button>`
-      }
+      ${paid ? `<button id="copyLink" class="primary-button" type="button">Copy Drive Link</button>` : `<button id="payButton" class="primary-button" type="button">Pay ${formatCurrency(track.price)} & Unlock</button>`}
     </div>
     <p id="paymentMessage" class="message" role="status" aria-live="polite"></p>
   `;
 
   if (!paid) {
     document.querySelector("#payButton")?.addEventListener("click", () => startPayment(track.id));
+  } else {
+    document.querySelector("#copyLink")?.addEventListener("click", async () => {
+      await copyToClipboard(track.driveLink);
+      setMessage(document.querySelector("#paymentMessage"), "Drive link copied to clipboard.", "success");
+    });
   }
 };
 

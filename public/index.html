@@ -42,8 +42,8 @@
           </div>
 
           <label class="field">
-            <span>Audio file</span>
-            <input id="audioFile" name="audio" type="file" accept="audio/wav,audio/mpeg,audio/mp3,.wav,.mp3" required />
+            <span>Google Drive Link</span>
+            <input id="driveLink" name="driveLink" type="url" placeholder="https://drive.google.com/file/d/..." required />
           </label>
 
           <label class="field">
@@ -68,7 +68,7 @@
           </label>
 
           <button class="primary-button" type="submit">
-            <span>Upload and generate link</span>
+            <span>Save track and generate link</span>
           </button>
 
           <p id="uploadMessage" class="message" role="status" aria-live="polite"></p>

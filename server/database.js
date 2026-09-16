@@ -142,6 +142,7 @@ const serializeFirestoreTrack = (snapshot) => {
     fileName: data.fileName,
     mimeType: data.mimeType,
     storagePath: data.storagePath,
+    driveLink: data.driveLink || null,
     createdAt: data.createdAt?.toDate?.().toISOString() || data.createdAt || null,
     paidAt: data.paidAt?.toDate?.().toISOString() || data.paidAt || null,
     linkPath: data.linkPath || null,
