@@ -87,7 +87,7 @@ const loadDashboardTracks = async () => {
 
     table.innerHTML = tracks
       .map((track) => {
-        const link = getTrackUrl(track.id);
+        const link = track.deliveryLink || getTrackUrl(track.id);
         const statusClass = track.status === "PAID" ? "paid" : "pending";
         return `
           <tr>
@@ -132,7 +132,7 @@ const initDashboard = () => {
         body: formData,
       });
 
-      const shareUrl = getTrackUrl(result.trackId);
+      const shareUrl = result.link || getTrackUrl(result.trackId);
       shareResult.className = "share-box";
       shareResult.innerHTML = `
         <strong>${escapeHtml(result.title)}</strong>

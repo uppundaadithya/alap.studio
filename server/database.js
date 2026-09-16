@@ -144,6 +144,8 @@ const serializeFirestoreTrack = (snapshot) => {
     storagePath: data.storagePath,
     createdAt: data.createdAt?.toDate?.().toISOString() || data.createdAt || null,
     paidAt: data.paidAt?.toDate?.().toISOString() || data.paidAt || null,
+    linkPath: data.linkPath || null,
+    deliveryLink: data.deliveryLink || null,
     razorpayOrderId: data.razorpayOrderId || null,
     razorpayPaymentId: data.razorpayPaymentId || null,
   };

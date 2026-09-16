@@ -152,6 +152,18 @@ app.get("/admin", requireAdmin, (_req, res) => {
 });
 
 app.use(["/index.html", "/api/upload", "/api/tracks"], requireAdmin);
+app.get("/browser-client.mjs", (_req, res) => {
+  res.type("application/javascript").sendFile(path.join(PUBLIC_DIR, "browser-client.mjs"));
+});
+
+app.get("/style.css", (_req, res) => {
+  res.type("text/css").sendFile(path.join(PUBLIC_DIR, "style.css"));
+});
+
+app.get("/alap-logo.png", (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, "alap-logo.png"));
+});
+
 app.use(express.static(PUBLIC_DIR));
 
 const asyncHandler = (handler) => (req, res, next) => {
@@ -180,6 +192,24 @@ const safeAudioFileName = (fileName = "audio") => {
   const base = parsed.name.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "audio";
   const ext = parsed.ext.toLowerCase() || ".mp3";
   return `${base}${ext}`;
+};
+
+const getPublicBaseUrl = (req) => {
+  const configuredUrl = process.env.PUBLIC_APP_URL || process.env.VERCEL_URL;
+  if (configuredUrl) {
+    return configuredUrl.startsWith("http") ? configuredUrl : `https://${configuredUrl}`;
+  }
+
+  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
+  return `${protocol}://${req.get("host")}`;
+};
+
+const buildTrackLinks = (req, trackId) => {
+  const linkPath = `/track.html?id=${encodeURIComponent(trackId)}`;
+  return {
+    linkPath,
+    deliveryLink: `${getPublicBaseUrl(req)}${linkPath}`,
+  };
 };
 
 const expectedTrackAmount = (track) => centsFromInr(track.price);
@@ -305,8 +335,6 @@ app.post(
     }
 
     if (!track) {
-      // createTrack should only run against Firestore store because we
-      // enforced databaseMode === 'firestore' earlier.
       track = await createTrack({
         title: title.trim(),
         clientName: clientName.trim(),
@@ -320,10 +348,14 @@ app.post(
       });
     }
 
+    const trackLinks = buildTrackLinks(req, track.id);
+    track = await updateTrackFields(track.id, trackLinks);
+
     res.status(201).json({
       trackId: track.id,
       title: track.title,
-      link: `/track.html?id=${track.id}`,
+      link: track.deliveryLink,
+      linkPath: track.linkPath,
     });
   }),
 );
