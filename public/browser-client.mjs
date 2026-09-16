@@ -195,7 +195,7 @@ ${paid ? `
       </div>
     ` : `
       <div class="delivery-panel locked">
-        <p class="eyebrow">Google Drive link</p>
+        <p class="eyebrow">Download link</p>
         <p class="lock-message">🔒 Link will be available after payment</p>
       </div>
     `}
@@ -206,7 +206,7 @@ ${paid ? `
     </div>
 
     <div id="paymentActions" class="action-row">
-      ${paid ? `<button id="copyLink" class="primary-button" type="button">Copy Drive Link</button>` : `<button id="payButton" class="primary-button" type="button">Pay ${formatCurrency(track.price)} & Unlock</button>`}
+      ${paid ? `<button id="copyLink" class="primary-button" type="button">Copy Link</button>` : `<button id="payButton" class="primary-button" type="button">Pay ${formatCurrency(track.price)} & Unlock</button>`}
     </div>
     <p id="paymentMessage" class="message" role="status" aria-live="polite"></p>
   `;
@@ -216,7 +216,7 @@ ${paid ? `
   } else {
     document.querySelector("#copyLink")?.addEventListener("click", async () => {
       await copyToClipboard(track.driveLink);
-      setMessage(document.querySelector("#paymentMessage"), "Drive link copied to clipboard.", "success");
+      setMessage(document.querySelector("#paymentMessage"), "Link copied to clipboard.", "success");
     });
   }
 };

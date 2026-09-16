@@ -255,12 +255,7 @@ app.post(
     }
 
     if (!driveLink) {
-      return res.status(400).json({ error: "Google Drive link is required." });
-    }
-
-    // Validate that it's a Google Drive link
-    if (!driveLink.includes("drive.google.com") && !driveLink.includes("docs.google.com")) {
-      return res.status(400).json({ error: "Please provide a valid Google Drive link." });
+      return res.status(400).json({ error: "Link is required." });
     }
 
     const track = await createTrack({
@@ -270,7 +265,7 @@ app.post(
       price: Number(price),
       producerName: PRODUCER_NAME,
       driveLink: driveLink.trim(),
-      fileName: "Google Drive file",
+      fileName: "Shared file",
       mimeType: "application/octet-stream",
       storageMode: "drive-link",
     });
